@@ -1,17 +1,22 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
 {
     [Header("Movement Speeds")]
-    public float moveSpeed = 8f;
-    public float dashSpeed = 20f;
-    public float dashDuration = 0.2f;
-    public float dashCooldown = 0.5f;
-
-    [Header("Physics & Gravity")]
-    public float gravity = -25f;
+    public float moveSpeed = 9f;
     public float rotationSpeed = 15f;
+
+    [Header("Jump & Air Control")]
+    public float jumpHeight = 2.5f;
+    public float gravity = -28f;
+    [Range(0f, 1f)] public float airControlFactor = 0.6f; // Reduced control while airborne
+
+    [Header("Dash Options")]
+    public float dashSpeed = 22f;
+    public float dashDuration = 0.18f;
+    public float dashCooldown = 0.4f;
 
     [Header("Camera Reference")]
     public Transform cameraTransform;
@@ -20,32 +25,33 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 velocity;
     private Vector3 moveDirection;
 
-    // Dash / State Flags
+    // Movement & State Tracking
+    private Vector2 rawInput;
     private bool isDashing;
     private float dashTimer;
     private float nextDashTime;
+    private bool hasAirDashed;
 
-    // Public state for Combat script to read/override
     [HideInInspector] public bool canMove = true;
 
     private void Start()
     {
         controller = GetComponent<CharacterController>();
 
-        // Fallback to Main Camera if not assigned in Inspector
         if (cameraTransform == null && Camera.main != null)
         {
             cameraTransform = Camera.main.transform;
         }
 
-        // Lock cursor for 3rd-person gameplay
+        // Lock cursor for playtesting
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
 
     private void Update()
     {
-        ApplyGravity();
+        ReadInput();
+        ApplyGravityAndGrounding();
 
         if (isDashing)
         {
@@ -56,36 +62,87 @@ public class PlayerMovement : MonoBehaviour
         if (canMove)
         {
             HandleMovement();
-            HandleDashInput();
+            HandleJumpAndDashInputs();
+        }
+    }
+
+    private void ReadInput()
+    {
+        rawInput = Vector2.zero;
+
+        // 1. Controller Input (Left Analog Stick)
+        if (Gamepad.current != null)
+        {
+            rawInput = Gamepad.current.leftStick.ReadValue();
+        }
+
+        // 2. Keyboard Fallback (WASD) if stick input is negligible
+        if (rawInput.magnitude < 0.1f && Keyboard.current != null)
+        {
+            if (Keyboard.current.wKey.isPressed) rawInput.y += 1f;
+            if (Keyboard.current.sKey.isPressed) rawInput.y -= 1f;
+            if (Keyboard.current.aKey.isPressed) rawInput.x -= 1f;
+            if (Keyboard.current.dKey.isPressed) rawInput.x += 1f;
+            rawInput = rawInput.normalized;
         }
     }
 
     private void HandleMovement()
     {
-        float horizontal = Input.GetAxisRaw("Horizontal");
-        float vertical = Input.GetAxisRaw("Vertical");
-
-        Vector3 inputDir = new Vector3(horizontal, 0f, vertical).normalized;
-
-        if (inputDir.magnitude >= 0.1f)
+        if (rawInput.magnitude >= 0.1f)
         {
-            // Calculate movement relative to Camera view angle
-            float targetAngle = Mathf.Atan2(inputDir.x, inputDir.z) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
-
-            // Smoothly rotate player toward movement direction
+            // Calculate direction relative to Camera orientation
+            float targetAngle = Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
             Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+
+            // Rotate character toward movement direction
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
 
             moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
-            controller.Move(moveDirection.normalized * moveSpeed * Time.deltaTime);
+
+            // Apply different control multiplier whether grounded or airborne
+            float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
+            controller.Move(moveDirection * currentSpeed * Time.deltaTime);
+        }
+        else
+        {
+            moveDirection = Vector3.zero;
         }
     }
 
-    private void HandleDashInput()
+    private void HandleJumpAndDashInputs()
     {
-        if (Input.GetKeyDown(KeyCode.LeftShift) && Time.time >= nextDashTime)
+        bool jumpPressed = false;
+        bool dashPressed = false;
+
+        // --- Gamepad Mapping (Xbox: South = A / East = B | PlayStation: South = Cross / East = Circle) ---
+        if (Gamepad.current != null)
         {
-            StartDash();
+            if (Gamepad.current.buttonSouth.wasPressedThisFrame) jumpPressed = true;
+            if (Gamepad.current.buttonEast.wasPressedThisFrame) dashPressed = true;
+        }
+
+        // --- Keyboard Fallback ---
+        if (Keyboard.current != null)
+        {
+            if (Keyboard.current.spaceKey.wasPressedThisFrame) jumpPressed = true;
+            if (Keyboard.current.leftShiftKey.wasPressedThisFrame) dashPressed = true;
+        }
+
+        // Jump Execution
+        if (jumpPressed && controller.isGrounded)
+        {
+            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+        }
+
+        // Dash Execution (Allows 1 ground dash + 1 air dash per jump)
+        if (dashPressed && Time.time >= nextDashTime)
+        {
+            if (controller.isGrounded || !hasAirDashed)
+            {
+                if (!controller.isGrounded) hasAirDashed = true;
+                StartDash();
+            }
         }
     }
 
@@ -95,8 +152,8 @@ public class PlayerMovement : MonoBehaviour
         dashTimer = dashDuration;
         nextDashTime = Time.time + dashCooldown;
 
-        // If not inputting a direction, dash forward
-        if (moveDirection == Vector3.zero)
+        // Default to facing direction if stick is neutral
+        if (rawInput.magnitude < 0.1f)
         {
             moveDirection = transform.forward;
         }
@@ -104,20 +161,26 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleDashExecution()
     {
+        // Dash freezes vertical fall briefly for DMC-style snappy air dodging
+        velocity.y = 0f;
         controller.Move(moveDirection * dashSpeed * Time.deltaTime);
-        dashTimer -= Time.deltaTime;
 
+        dashTimer -= Time.deltaTime;
         if (dashTimer <= 0f)
         {
             isDashing = false;
         }
     }
 
-    private void ApplyGravity()
+    private void ApplyGravityAndGrounding()
     {
-        if (controller.isGrounded && velocity.y < 0)
+        if (controller.isGrounded)
         {
-            velocity.y = -2f; // Keep grounded firmly
+            hasAirDashed = false; // Reset air dash when landing
+            if (velocity.y < 0)
+            {
+                velocity.y = -2f; // Snap to ground
+            }
         }
 
         velocity.y += gravity * Time.deltaTime;
