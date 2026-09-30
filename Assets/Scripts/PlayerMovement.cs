@@ -21,6 +21,10 @@ public class PlayerMovement : MonoBehaviour
     [Header("Camera Reference")]
     public Transform cameraTransform;
 
+    [Header("Lock-On")]
+    public DMCStyleCamera lockOnCamera;
+    [Range(0f, 1f)] public float lockOnSpeedMultiplier = 0.75f;
+
     private CharacterController controller;
     private Vector3 velocity;
     private Vector3 moveDirection;
@@ -41,6 +45,11 @@ public class PlayerMovement : MonoBehaviour
         if (cameraTransform == null && Camera.main != null)
         {
             cameraTransform = Camera.main.transform;
+        }
+
+        if (lockOnCamera == null && cameraTransform != null)
+        {
+            lockOnCamera = cameraTransform.GetComponent<DMCStyleCamera>();
         }
 
         // Lock cursor for playtesting
@@ -89,19 +98,60 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleMovement()
     {
+        Transform lockedTarget = lockOnCamera != null
+            ? lockOnCamera.LockedTarget
+            : null;
+
+        bool isLockedOn = lockedTarget != null;
+
+        // Face the locked enemy, including while standing still.
+        if (isLockedOn)
+        {
+            Vector3 enemyDirection = lockedTarget.position - transform.position;
+            enemyDirection.y = 0f;
+
+            if (enemyDirection.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(enemyDirection);
+
+                transform.rotation = Quaternion.Slerp(
+                    transform.rotation,
+                    targetRotation,
+                    rotationSpeed * Time.deltaTime
+                );
+            }
+        }
+
         if (rawInput.magnitude >= 0.1f)
         {
-            // Calculate direction relative to Camera orientation
-            float targetAngle = Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
-            Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+            // Movement remains relative to the camera.
+            float targetAngle =
+                Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg
+                + cameraTransform.eulerAngles.y;
 
-            // Rotate character toward movement direction
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            // Only face movement direction when not locked on.
+            if (!isLockedOn)
+            {
+                Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+
+                transform.rotation = Quaternion.Slerp(
+                    transform.rotation,
+                    targetRotation,
+                    rotationSpeed * Time.deltaTime
+                );
+            }
 
             moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
 
-            // Apply different control multiplier whether grounded or airborne
-            float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
+            float currentSpeed = controller.isGrounded
+                ? moveSpeed
+                : moveSpeed * airControlFactor;
+
+            if (isLockedOn)
+            {
+                currentSpeed *= lockOnSpeedMultiplier;
+            }
+
             controller.Move(moveDirection * currentSpeed * Time.deltaTime);
         }
         else
