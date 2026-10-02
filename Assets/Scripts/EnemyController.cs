@@ -223,15 +223,11 @@ public class EnemyController : MonoBehaviour
 
                 Debug.Log("Enemy osui pelaajaan!");
             }
-            else
-            {
-                Debug.Log("Pelaaja väisti hyökkäyksen!");
-            }
         }
 
         isAttacking = false;
 
-        // 5 sekuntia seuraavaan hyökkäykseen
+        // 3 sekuntia seuraavaan hyökkäykseen
         yield return new WaitForSeconds(
             attackCooldown
         );
