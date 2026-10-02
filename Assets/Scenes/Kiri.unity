@@ -258,6 +258,8 @@ GameObject:
   - component: {fileID: 102045452}
   - component: {fileID: 102045451}
   - component: {fileID: 102045450}
+  - component: {fileID: 102045455}
+  - component: {fileID: 102045456}
   m_Layer: 0
   m_Name: Player
   m_TagString: Untagged
@@ -361,6 +363,55 @@ Transform:
   - {fileID: 1607572930}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!143 &102045455
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 102045449}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 2
+  m_Radius: 0.5
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &102045456
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 102045449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ea6983775aca1bd4f919ee5f854c683f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
+  moveSpeed: 9
+  rotationSpeed: 15
+  jumpHeight: 2.5
+  gravity: -28
+  airControlFactor: 0.6
+  dashSpeed: 22
+  dashDuration: 0.18
+  dashCooldown: 0.4
+  cameraTransform: {fileID: 2031734965}
+  lockOnCamera: {fileID: 0}
+  lockOnSpeedMultiplier: 0.75
+  canMove: 1
 --- !u!1 &153499824
 GameObject:
   m_ObjectHideFlags: 0
