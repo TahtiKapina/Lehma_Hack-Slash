@@ -19,18 +19,19 @@ public class PlayerMovement : MonoBehaviour
     public float dashCooldown = 0.4f;
 
     [Header("Camera Reference")]
-    public Transform cameraTransform;
+    public DMCStyleCamera dmcCamera;
 
     private CharacterController controller;
     private Vector3 verticalVelocity;
     private Vector3 moveDirection;
 
-    // State Tracking
     private Vector2 rawInput;
     private bool isDashing;
     private float dashTimer;
     private float nextDashTime;
     private bool hasAirDashed;
+
+    private float gravityPauseTimer = 0f;
 
     [HideInInspector] public bool canMove = true;
 
@@ -38,9 +39,9 @@ public class PlayerMovement : MonoBehaviour
     {
         controller = GetComponent<CharacterController>();
 
-        if (cameraTransform == null && Camera.main != null)
+        if (dmcCamera == null)
         {
-            cameraTransform = Camera.main.transform;
+            dmcCamera = FindFirstObjectByType<DMCStyleCamera>();
         }
 
         Cursor.lockState = CursorLockMode.Locked;
@@ -50,7 +51,6 @@ public class PlayerMovement : MonoBehaviour
     private void Update()
     {
         ReadInput();
-
         HandleGroundingAndGravity();
 
         if (isDashing)
@@ -66,17 +66,26 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    public void ResetVerticalVelocity(float overrideY = 0f)
+    {
+        verticalVelocity.y = overrideY;
+    }
+
+    public void PauseGravity(float duration)
+    {
+        gravityPauseTimer = duration;
+        verticalVelocity.y = 0f;
+    }
+
     private void ReadInput()
     {
         rawInput = Vector2.zero;
 
-        // Gamepad
         if (Gamepad.current != null)
         {
             rawInput = Gamepad.current.leftStick.ReadValue();
         }
 
-        // WASD 
         if (rawInput.magnitude < 0.1f && Keyboard.current != null)
         {
             if (Keyboard.current.wKey.isPressed) rawInput.y += 1f;
@@ -92,14 +101,12 @@ public class PlayerMovement : MonoBehaviour
         bool jumpPressed = false;
         bool dashPressed = false;
 
-        // Gamepad (A = Jump / B = Dash)
         if (Gamepad.current != null)
         {
             if (Gamepad.current.buttonSouth.wasPressedThisFrame) jumpPressed = true;
             if (Gamepad.current.buttonEast.wasPressedThisFrame) dashPressed = true;
         }
 
-        // Keyboard (Space = Jump / LeftShift = Dash)
         if (Keyboard.current != null)
         {
             if (Keyboard.current.spaceKey.wasPressedThisFrame) jumpPressed = true;
@@ -111,7 +118,6 @@ public class PlayerMovement : MonoBehaviour
             verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
 
-        // Dash Logic
         if (dashPressed && Time.time >= nextDashTime)
         {
             if (controller.isGrounded || !hasAirDashed)
@@ -125,17 +131,35 @@ public class PlayerMovement : MonoBehaviour
     private void HandleMovement()
     {
         Vector3 horizontalMove = Vector3.zero;
+        Transform cameraTransform = dmcCamera != null ? dmcCamera.transform : Camera.main.transform;
 
         if (rawInput.magnitude >= 0.1f)
         {
             float targetAngle = Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
-            Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
-
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
-
             moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+
             float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
             horizontalMove = moveDirection * currentSpeed;
+
+            // Rotate toward stick input ONLY if not locked on
+            if (dmcCamera == null || dmcCamera.LockedTarget == null)
+            {
+                Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            }
+        }
+
+        // Lock-on Override: Always face the locked enemy target
+        if (dmcCamera != null && dmcCamera.LockedTarget != null)
+        {
+            Vector3 targetDir = dmcCamera.LockedTarget.position - transform.position;
+            targetDir.y = 0f;
+
+            if (targetDir.sqrMagnitude > 0.001f)
+            {
+                Quaternion lockRotation = Quaternion.LookRotation(targetDir);
+                transform.rotation = Quaternion.Slerp(transform.rotation, lockRotation, rotationSpeed * Time.deltaTime);
+            }
         }
 
         Vector3 finalVelocity = horizontalMove + verticalVelocity;
@@ -178,7 +202,15 @@ public class PlayerMovement : MonoBehaviour
         }
         else
         {
-            verticalVelocity.y += gravity * Time.deltaTime;
+            if (gravityPauseTimer > 0f)
+            {
+                gravityPauseTimer -= Time.deltaTime;
+                verticalVelocity.y = 0f;
+            }
+            else
+            {
+                verticalVelocity.y += gravity * Time.deltaTime;
+            }
         }
     }
 }
