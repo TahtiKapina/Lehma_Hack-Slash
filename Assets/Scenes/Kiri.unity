@@ -619,7 +619,7 @@ Transform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &1775831674 stripped
 Transform:
-  m_CorrespondingSourceObject: {fileID: 115129744932264053, guid: e38654b0b60e8634d987d7e9a80008be, type: 3}
+  m_CorrespondingSourceObject: {fileID: 6753299325021907491, guid: e38654b0b60e8634d987d7e9a80008be, type: 3}
   m_PrefabInstance: {fileID: 3869820839833546032}
   m_PrefabAsset: {fileID: 0}
 --- !u!1 &2031734962
@@ -731,8 +731,8 @@ MonoBehaviour:
   player: {fileID: 1775831674}
   startingAnchor: {fileID: 1484743022}
   focusOffset: {x: 0, y: 1, z: 0}
-  minimumDistance: 5
-  maximumDistance: 8
+  minimumDistance: 3
+  maximumDistance: 6
   anchorSmoothTime: 0.45
   aimSmoothTime: 0.12
   maximumAnchorSpeed: 20

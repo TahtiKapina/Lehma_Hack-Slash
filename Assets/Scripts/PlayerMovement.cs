@@ -25,6 +25,11 @@ public class PlayerMovement : MonoBehaviour
     public DMCStyleCamera lockOnCamera;
     [Range(0f, 1f)] public float lockOnSpeedMultiplier = 0.75f;
 
+    // Read by CowLocomotion; directions are relative to this movement root.
+    public Vector2 AnimationMove { get; private set; }
+    public bool IsLockedOn => lockOnCamera != null && lockOnCamera.LockedTarget != null;
+    public bool IsDashing => isDashing;
+
     private CharacterController controller;
     private Vector3 verticalVelocity;
     private Vector3 moveDirection;
@@ -63,6 +68,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void Update()
     {
+        AnimationMove = Vector2.zero;
         ReadInput();
 
         HandleGroundingAndGravity();
@@ -93,6 +99,7 @@ public class PlayerMovement : MonoBehaviour
         // WASD
         if (rawInput.magnitude < 0.1f && Keyboard.current != null)
         {
+            rawInput = Vector2.zero;
             if (Keyboard.current.wKey.isPressed) rawInput.y += 1f;
             if (Keyboard.current.sKey.isPressed) rawInput.y -= 1f;
             if (Keyboard.current.aKey.isPressed) rawInput.x -= 1f;
@@ -168,11 +175,18 @@ public class PlayerMovement : MonoBehaviour
             moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
             float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
             if (isLockedOn) currentSpeed *= lockOnSpeedMultiplier;
-            horizontalMove = moveDirection * currentSpeed;
+            horizontalMove = moveDirection * currentSpeed * Mathf.Clamp01(rawInput.magnitude);
         }
 
         Vector3 finalVelocity = horizontalMove + verticalVelocity;
         controller.Move(finalVelocity * Time.deltaTime);
+
+        // Actual motion prevents walking in place when completely blocked by a wall.
+        float referenceSpeed = moveSpeed * (isLockedOn ? lockOnSpeedMultiplier : 1f);
+        Vector3 localVelocity = transform.InverseTransformDirection(controller.velocity);
+        if (!isDashing && referenceSpeed > 0.001f)
+            AnimationMove = Vector2.ClampMagnitude(
+                new Vector2(localVelocity.x, localVelocity.z) / referenceSpeed, 1f);
     }
 
     private void StartDash()
