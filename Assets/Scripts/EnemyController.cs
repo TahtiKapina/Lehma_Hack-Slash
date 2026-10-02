@@ -1,7 +1,8 @@
-
 using UnityEngine;
 using System.Collections;
 
+[RequireComponent(typeof(Rigidbody))]
+[RequireComponent(typeof(Collider))]
 public class EnemyController : MonoBehaviour
 {
     [Header("Player")]
@@ -12,6 +13,10 @@ public class EnemyController : MonoBehaviour
     public float detectionRange = 10f;
     public float attackRange = 2f;
 
+    [Header("Obstacle Avoidance")]
+    public float obstacleCheckDistance = 1.5f;
+    public float sideCheckAngle = 60f;
+
     [Header("Attack")]
     public int damage = 10;
     public float attackPreparationTime = 3f;
@@ -21,9 +26,19 @@ public class EnemyController : MonoBehaviour
     private bool canAttack = true;
 
     private PlayerHealth playerHealth;
+    private Rigidbody rb;
+    private Collider enemyCollider;
 
     private void Start()
     {
+        rb = GetComponent<Rigidbody>();
+        enemyCollider = GetComponent<Collider>();
+
+        // Enemy ei kaadu
+        rb.constraints =
+            RigidbodyConstraints.FreezeRotationX |
+            RigidbodyConstraints.FreezeRotationZ;
+
         if (player == null)
         {
             GameObject playerObject =
@@ -38,29 +53,38 @@ public class EnemyController : MonoBehaviour
         if (player != null)
         {
             playerHealth = player.GetComponent<PlayerHealth>();
+
+            // Player ja Enemy eivät työnnä toisiaan
+            Collider playerCollider =
+                player.GetComponent<Collider>();
+
+            if (playerCollider != null)
+            {
+                Physics.IgnoreCollision(
+                    enemyCollider,
+                    playerCollider
+                );
+            }
         }
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (player == null)
             return;
 
-        Vector3 direction = player.position - transform.position;
+        Vector3 direction =
+            player.position - transform.position;
+
         direction.y = 0f;
 
         float distance = direction.magnitude;
 
+        // Pelaaja liian kaukana
         if (distance > detectionRange)
             return;
 
-        // Kääntyy pelaajaa kohti
-        if (direction != Vector3.zero)
-        {
-            transform.rotation = Quaternion.LookRotation(direction);
-        }
-
-        // Hyökkäysetäisyydellä
+        // Hyökkäysalueella
         if (distance <= attackRange)
         {
             if (!isAttacking && canAttack)
@@ -71,12 +95,104 @@ public class EnemyController : MonoBehaviour
             return;
         }
 
-        // Seuraa pelaajaa
         if (!isAttacking)
         {
-            transform.position +=
-                direction.normalized * moveSpeed * Time.deltaTime;
+            MoveEnemy(direction.normalized);
         }
+    }
+
+    private void MoveEnemy(Vector3 direction)
+    {
+        Vector3 moveDirection = direction;
+
+        // Tarkista suoraan eteen
+        if (IsBlocked(direction))
+        {
+            // Tarkista oikea
+            Vector3 right =
+                Quaternion.Euler(
+                    0f,
+                    sideCheckAngle,
+                    0f
+                ) * direction;
+
+            // Tarkista vasen
+            Vector3 left =
+                Quaternion.Euler(
+                    0f,
+                    -sideCheckAngle,
+                    0f
+                ) * direction;
+
+            bool rightBlocked = IsBlocked(right);
+            bool leftBlocked = IsBlocked(left);
+
+            if (!rightBlocked)
+            {
+                moveDirection = right;
+            }
+            else if (!leftBlocked)
+            {
+                moveDirection = left;
+            }
+            else
+            {
+                // Ei voi liikkua eteenpäin
+                moveDirection = Vector3.zero;
+            }
+        }
+
+        if (moveDirection == Vector3.zero)
+            return;
+
+        moveDirection.y = 0f;
+        moveDirection.Normalize();
+
+        // Liikkuu vain jos koko Colliderille on tilaa
+        Vector3 movement =
+            moveDirection *
+            moveSpeed *
+            Time.fixedDeltaTime;
+
+        rb.MovePosition(rb.position + movement);
+
+        // Kääntyminen
+        Quaternion targetRotation =
+            Quaternion.LookRotation(moveDirection);
+
+        rb.MoveRotation(
+            Quaternion.Slerp(
+                rb.rotation,
+                targetRotation,
+                10f * Time.fixedDeltaTime
+            )
+        );
+    }
+
+    private bool IsBlocked(Vector3 direction)
+    {
+        direction.y = 0f;
+        direction.Normalize();
+
+        Vector3 center = enemyCollider.bounds.center;
+
+        float radius =
+            Mathf.Min(
+                enemyCollider.bounds.extents.x,
+                enemyCollider.bounds.extents.z
+            );
+
+        float distance =
+            obstacleCheckDistance + radius;
+
+        // Tarkistaa koko Enemyn alueen
+        return Physics.SphereCast(
+            center,
+            radius * 0.9f,
+            direction,
+            out RaycastHit hit,
+            distance
+        );
     }
 
     private IEnumerator Attack()
@@ -86,17 +202,21 @@ public class EnemyController : MonoBehaviour
 
         Debug.Log("Enemy valmistautuu hyökkäykseen!");
 
-        // Pelaajalla on 3 sekuntia aikaa väistää
-        yield return new WaitForSeconds(attackPreparationTime);
+        // Pelaajalla 3 sekuntia aikaa väistää
+        yield return new WaitForSeconds(
+            attackPreparationTime
+        );
 
         if (player != null && playerHealth != null)
         {
-            Vector3 direction = player.position - transform.position;
+            Vector3 direction =
+                player.position - transform.position;
+
             direction.y = 0f;
 
-            float distance = direction.magnitude;
+            float distance =
+                direction.magnitude;
 
-            // Jos pelaaja on vielä lähellä, osuu
             if (distance <= attackRange)
             {
                 playerHealth.TakeDamage(damage);
@@ -111,8 +231,10 @@ public class EnemyController : MonoBehaviour
 
         isAttacking = false;
 
-        // Odottaa 5 sekuntia ennen seuraavaa hyökkäystä
-        yield return new WaitForSeconds(attackCooldown);
+        // 5 sekuntia seuraavaan hyökkäykseen
+        yield return new WaitForSeconds(
+            attackCooldown
+        );
 
         canAttack = true;
     }
