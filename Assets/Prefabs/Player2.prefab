@@ -82,7 +82,7 @@ MonoBehaviour:
   airControlFactor: 0.75
   dashSpeed: 22
   dashDuration: 0.18
-  dashCooldown: 0.6
+  dashCooldown: 0.64
   cameraTransform: {fileID: 0}
   lockOnCamera: {fileID: 0}
   lockOnSpeedMultiplier: 0.5

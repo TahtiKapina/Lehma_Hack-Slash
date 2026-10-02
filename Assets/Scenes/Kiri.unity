@@ -856,6 +856,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Player2
       objectReference: {fileID: 0}
+    - target: {fileID: 8578126490416249902, guid: e38654b0b60e8634d987d7e9a80008be, type: 3}
+      propertyPath: dashCooldown
+      value: 0.64
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
