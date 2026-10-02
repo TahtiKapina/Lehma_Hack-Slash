@@ -9,9 +9,9 @@ public class PlayerMovement : MonoBehaviour
     public float rotationSpeed = 15f;
 
     [Header("Jump & Air Control")]
-    public float jumpHeight = 2.5f;
-    public float gravity = -28f;
-    [Range(0f, 1f)] public float airControlFactor = 0.6f; // Reduced control while airborne
+    public float jumpHeight = 3.5f;
+    public float gravity = -30f;
+    [Range(0f, 1f)] public float airControlFactor = 0.75f;
 
     [Header("Dash Options")]
     public float dashSpeed = 22f;
@@ -21,15 +21,11 @@ public class PlayerMovement : MonoBehaviour
     [Header("Camera Reference")]
     public Transform cameraTransform;
 
-    [Header("Lock-On")]
-    public DMCStyleCamera lockOnCamera;
-    [Range(0f, 1f)] public float lockOnSpeedMultiplier = 0.75f;
-
     private CharacterController controller;
-    private Vector3 velocity;
+    private Vector3 verticalVelocity;
     private Vector3 moveDirection;
 
-    // Movement & State Tracking
+    // State Tracking
     private Vector2 rawInput;
     private bool isDashing;
     private float dashTimer;
@@ -47,12 +43,6 @@ public class PlayerMovement : MonoBehaviour
             cameraTransform = Camera.main.transform;
         }
 
-        if (lockOnCamera == null && cameraTransform != null)
-        {
-            lockOnCamera = cameraTransform.GetComponent<DMCStyleCamera>();
-        }
-
-        // Lock cursor for playtesting
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
     }
@@ -60,7 +50,8 @@ public class PlayerMovement : MonoBehaviour
     private void Update()
     {
         ReadInput();
-        ApplyGravityAndGrounding();
+
+        HandleGroundingAndGravity();
 
         if (isDashing)
         {
@@ -70,8 +61,8 @@ public class PlayerMovement : MonoBehaviour
 
         if (canMove)
         {
-            HandleMovement();
             HandleJumpAndDashInputs();
+            HandleMovement();
         }
     }
 
@@ -79,13 +70,13 @@ public class PlayerMovement : MonoBehaviour
     {
         rawInput = Vector2.zero;
 
-        // 1. Controller Input (Left Analog Stick)
+        // Gamepad
         if (Gamepad.current != null)
         {
             rawInput = Gamepad.current.leftStick.ReadValue();
         }
 
-        // 2. Keyboard Fallback (WASD) if stick input is negligible
+        // WASD 
         if (rawInput.magnitude < 0.1f && Keyboard.current != null)
         {
             if (Keyboard.current.wKey.isPressed) rawInput.y += 1f;
@@ -96,96 +87,31 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void HandleMovement()
-    {
-        Transform lockedTarget = lockOnCamera != null
-            ? lockOnCamera.LockedTarget
-            : null;
-
-        bool isLockedOn = lockedTarget != null;
-
-        // Face the locked enemy, including while standing still.
-        if (isLockedOn)
-        {
-            Vector3 enemyDirection = lockedTarget.position - transform.position;
-            enemyDirection.y = 0f;
-
-            if (enemyDirection.sqrMagnitude > 0.001f)
-            {
-                Quaternion targetRotation = Quaternion.LookRotation(enemyDirection);
-
-                transform.rotation = Quaternion.Slerp(
-                    transform.rotation,
-                    targetRotation,
-                    rotationSpeed * Time.deltaTime
-                );
-            }
-        }
-
-        if (rawInput.magnitude >= 0.1f)
-        {
-            // Movement remains relative to the camera.
-            float targetAngle =
-                Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg
-                + cameraTransform.eulerAngles.y;
-
-            // Only face movement direction when not locked on.
-            if (!isLockedOn)
-            {
-                Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
-
-                transform.rotation = Quaternion.Slerp(
-                    transform.rotation,
-                    targetRotation,
-                    rotationSpeed * Time.deltaTime
-                );
-            }
-
-            moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
-
-            float currentSpeed = controller.isGrounded
-                ? moveSpeed
-                : moveSpeed * airControlFactor;
-
-            if (isLockedOn)
-            {
-                currentSpeed *= lockOnSpeedMultiplier;
-            }
-
-            controller.Move(moveDirection * currentSpeed * Time.deltaTime);
-        }
-        else
-        {
-            moveDirection = Vector3.zero;
-        }
-    }
-
     private void HandleJumpAndDashInputs()
     {
         bool jumpPressed = false;
         bool dashPressed = false;
 
-        // --- Gamepad Mapping (Xbox: South = A / East = B | PlayStation: South = Cross / East = Circle) ---
+        // Gamepad (A = Jump / B = Dash)
         if (Gamepad.current != null)
         {
             if (Gamepad.current.buttonSouth.wasPressedThisFrame) jumpPressed = true;
             if (Gamepad.current.buttonEast.wasPressedThisFrame) dashPressed = true;
         }
 
-        // --- Keyboard Fallback ---
+        // Keyboard (Space = Jump / LeftShift = Dash)
         if (Keyboard.current != null)
         {
             if (Keyboard.current.spaceKey.wasPressedThisFrame) jumpPressed = true;
             if (Keyboard.current.leftShiftKey.wasPressedThisFrame) dashPressed = true;
         }
 
-        // Jump Execution
         if (jumpPressed && controller.isGrounded)
         {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
 
-        // Dash Execution (Allows 1 ground dash + 1 air dash per jump)
+        // Dash Logic
         if (dashPressed && Time.time >= nextDashTime)
         {
             if (controller.isGrounded || !hasAirDashed)
@@ -196,13 +122,32 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    private void HandleMovement()
+    {
+        Vector3 horizontalMove = Vector3.zero;
+
+        if (rawInput.magnitude >= 0.1f)
+        {
+            float targetAngle = Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
+            Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+
+            moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
+            float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
+            horizontalMove = moveDirection * currentSpeed;
+        }
+
+        Vector3 finalVelocity = horizontalMove + verticalVelocity;
+        controller.Move(finalVelocity * Time.deltaTime);
+    }
+
     private void StartDash()
     {
         isDashing = true;
         dashTimer = dashDuration;
         nextDashTime = Time.time + dashCooldown;
 
-        // Default to facing direction if stick is neutral
         if (rawInput.magnitude < 0.1f)
         {
             moveDirection = transform.forward;
@@ -211,8 +156,7 @@ public class PlayerMovement : MonoBehaviour
 
     private void HandleDashExecution()
     {
-        // Dash freezes vertical fall briefly for DMC-style snappy air dodging
-        velocity.y = 0f;
+        verticalVelocity.y = 0f;
         controller.Move(moveDirection * dashSpeed * Time.deltaTime);
 
         dashTimer -= Time.deltaTime;
@@ -222,18 +166,19 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
-    private void ApplyGravityAndGrounding()
+    private void HandleGroundingAndGravity()
     {
         if (controller.isGrounded)
         {
-            hasAirDashed = false; // Reset air dash when landing
-            if (velocity.y < 0)
+            hasAirDashed = false;
+            if (verticalVelocity.y < 0)
             {
-                velocity.y = -2f; // Snap to ground
+                verticalVelocity.y = -2f;
             }
         }
-
-        velocity.y += gravity * Time.deltaTime;
-        controller.Move(velocity * Time.deltaTime);
+        else
+        {
+            verticalVelocity.y += gravity * Time.deltaTime;
+        }
     }
 }
