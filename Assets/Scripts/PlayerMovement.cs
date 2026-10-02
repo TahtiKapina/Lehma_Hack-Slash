@@ -21,6 +21,10 @@ public class PlayerMovement : MonoBehaviour
     [Header("Camera Reference")]
     public Transform cameraTransform;
 
+    [Header("Lock-On")]
+    public DMCStyleCamera lockOnCamera;
+    [Range(0f, 1f)] public float lockOnSpeedMultiplier = 0.75f;
+
     private CharacterController controller;
     private Vector3 verticalVelocity;
     private Vector3 moveDirection;
@@ -41,6 +45,16 @@ public class PlayerMovement : MonoBehaviour
         if (cameraTransform == null && Camera.main != null)
         {
             cameraTransform = Camera.main.transform;
+        }
+
+        // Prefer the movement camera; fall back to the scene's camera script.
+        if (lockOnCamera == null && cameraTransform != null)
+        {
+            lockOnCamera = cameraTransform.GetComponent<DMCStyleCamera>();
+        }
+        if (lockOnCamera == null)
+        {
+            lockOnCamera = FindFirstObjectByType<DMCStyleCamera>();
         }
 
         Cursor.lockState = CursorLockMode.Locked;
@@ -76,7 +90,7 @@ public class PlayerMovement : MonoBehaviour
             rawInput = Gamepad.current.leftStick.ReadValue();
         }
 
-        // WASD 
+        // WASD
         if (rawInput.magnitude < 0.1f && Keyboard.current != null)
         {
             if (Keyboard.current.wKey.isPressed) rawInput.y += 1f;
@@ -125,16 +139,35 @@ public class PlayerMovement : MonoBehaviour
     private void HandleMovement()
     {
         Vector3 horizontalMove = Vector3.zero;
+        Transform lockedTarget = lockOnCamera != null ? lockOnCamera.LockedTarget : null;
+        bool isLockedOn = lockedTarget != null;
+
+        // Face the enemy even when the movement stick is neutral.
+        if (isLockedOn)
+        {
+            Vector3 enemyDirection = lockedTarget.position - transform.position;
+            enemyDirection.y = 0f;
+            if (enemyDirection.sqrMagnitude > 0.001f)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(enemyDirection);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            }
+        }
 
         if (rawInput.magnitude >= 0.1f)
         {
             float targetAngle = Mathf.Atan2(rawInput.x, rawInput.y) * Mathf.Rad2Deg + cameraTransform.eulerAngles.y;
-            Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
 
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            // When locked on, strafe while continuing to face the enemy.
+            if (!isLockedOn)
+            {
+                Quaternion targetRotation = Quaternion.Euler(0f, targetAngle, 0f);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            }
 
             moveDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
             float currentSpeed = controller.isGrounded ? moveSpeed : moveSpeed * airControlFactor;
+            if (isLockedOn) currentSpeed *= lockOnSpeedMultiplier;
             horizontalMove = moveDirection * currentSpeed;
         }
 

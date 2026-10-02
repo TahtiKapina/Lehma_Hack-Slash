@@ -10,8 +10,6 @@ public class PlayerCombat : MonoBehaviour
     public class Attack
     {
         public string stateName;
-        [Tooltip("Full uninterrupted attack duration in game seconds, including recovery/sheathing. Independent of speed.")]
-        [Min(0.01f)] public float playTime = 2f;
         [Tooltip("Seconds from this attack starting when the combo expires. Y then restarts Attack1, without automatically stopping this animation.")]
         [Min(0f)] public float comboResetTime = 1f;
         [Min(0.05f)] public float speedMultiplier = 1f;
@@ -21,7 +19,7 @@ public class PlayerCombat : MonoBehaviour
 
     [Header("Animator on the cow")]
     public Animator animator;
-    public string idleState = "Cow_Idle_4Leg";
+    public string idleState = "Idle";
 
     [Header("Combo tuning")]
     [Tooltip("Minimum game seconds between accepted Y presses. Holding Y does not repeat.")]
@@ -32,8 +30,8 @@ public class PlayerCombat : MonoBehaviour
     [Min(0f)] public float transitionTime = 0.06f;
     public Attack[] attacks =
     {
-        new Attack("SwordAttack_1"), new Attack("SwordAttack_2"),
-        new Attack("SwordAttack_3"), new Attack("SwordAttack_4")
+        new Attack("Attack1"), new Attack("Attack2"),
+        new Attack("Attack3"), new Attack("Attack4")
     };
 
     public bool IsAttacking => currentAttack >= 0;
@@ -46,6 +44,7 @@ public class PlayerCombat : MonoBehaviour
     int currentAttack = -1;
     float elapsed;
     float nextPressTime;
+    int attackStartedFrame;
 
     void Start()
     {
@@ -101,21 +100,30 @@ public class PlayerCombat : MonoBehaviour
 
     void Update()
     {
-        if (Time.deltaTime <= 0f || !animator.isActiveAndEnabled) return;
+        if (Time.deltaTime <= 0f || animator == null || !animator.isActiveAndEnabled) return;
 
-        // Advance an existing attack's timer before processing this frame's press.
-        if (IsAttacking) elapsed += Time.deltaTime;
+        if (IsAttacking)
+        {
+            elapsed += Time.deltaTime;
+            Attack attack = attacks[currentAttack];
+            animator.SetFloat(speedHash, Mathf.Max(0.05f, attackSpeed)
+                * Mathf.Max(0.05f, attack.speedMultiplier));
+
+            // End only after the expected animation actually reaches its end.
+            // Do not inspect the outgoing state while blending into a new attack.
+            if (Time.frameCount > attackStartedFrame && !animator.IsInTransition(0))
+            {
+                AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+                if (state.fullPathHash == attackHashes[currentAttack] && state.normalizedTime >= 1f)
+                    FinishCombo();
+            }
+        }
+
+        // Input is processed AFTER completion checks, so a freshly restarted
+        // Attack1 cannot be mistaken for the previous Attack1's completed state.
         bool pressed = (Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame)
             || (Keyboard.current != null && Keyboard.current.yKey.wasPressedThisFrame);
         if (pressed) RequestAttack();
-
-        if (!IsAttacking) return;
-        Attack attack = attacks[currentAttack];
-        animator.SetFloat(speedHash, Mathf.Max(0.05f, attackSpeed)
-            * Mathf.Max(0.05f, attack.speedMultiplier));
-
-        if (elapsed < Mathf.Max(0.01f, attack.playTime)) return;
-        FinishCombo();
     }
 
     void RequestAttack()
@@ -128,8 +136,7 @@ public class PlayerCombat : MonoBehaviour
         {
             Attack attack = attacks[currentAttack];
             // At the reset boundary or after playback ends, the next press is Attack1.
-            bool insideChainWindow = elapsed < Mathf.Max(0f, attack.comboResetTime)
-                && elapsed < Mathf.Max(0.01f, attack.playTime);
+            bool insideChainWindow = elapsed < Mathf.Max(0f, attack.comboResetTime);
             if (insideChainWindow)
                 nextIndex = (currentAttack + 1) % attacks.Length;
         }
@@ -140,6 +147,7 @@ public class PlayerCombat : MonoBehaviour
     {
         currentAttack = index;
         elapsed = 0f;
+        attackStartedFrame = Time.frameCount;
         nextPressTime = Time.time + Mathf.Max(0f, pressCooldown);
         animator.SetFloat(speedHash, Mathf.Max(0.05f, attackSpeed)
             * Mathf.Max(0.05f, attacks[index].speedMultiplier));
