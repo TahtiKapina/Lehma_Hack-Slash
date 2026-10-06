@@ -1,10 +1,10 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class Flicker : MonoBehaviour
 {
     [Header("References")]
+    [SerializeField] PlayerMovement playerMovement;
     [SerializeField] GameObject visualModel;
     [SerializeField] ParticleSystem speedLines;
 
@@ -25,25 +25,65 @@ public class Flicker : MonoBehaviour
     [Header("Invisible Time")]
     [SerializeField] int invisibleFrames = 2;
 
-    bool isTeleporting;
+    Coroutine effectRoutine;
+    bool modelHidden;
 
-    void Update()
+    void OnEnable()
     {
-        if ((Gamepad.current.buttonEast.wasPressedThisFrame) && !isTeleporting)
+        if (playerMovement == null)
         {
-            StartCoroutine(TeleportEffect());
+            playerMovement = GetComponentInParent<PlayerMovement>();
         }
+
+        if (playerMovement == null)
+        {
+            Debug.LogError("Flicker: assign Player2's PlayerMovement reference.", this);
+            return;
+        }
+
+        playerMovement.DashStarted += OnDashStarted;
+    }
+
+    void OnDisable()
+    {
+        if (playerMovement != null)
+        {
+            playerMovement.DashStarted -= OnDashStarted;
+        }
+
+        StopEffect();
+    }
+
+    void OnDashStarted()
+    {
+        // A short cooldown can allow another dash before the old effect ends.
+        StopEffect();
+        effectRoutine = StartCoroutine(TeleportEffect());
+    }
+
+    void StopEffect()
+    {
+        if (effectRoutine != null)
+        {
+            StopCoroutine(effectRoutine);
+            effectRoutine = null;
+        }
+
+        if (modelHidden)
+        {
+            SetModelVisible(true);
+        }
+
     }
 
     IEnumerator TeleportEffect()
     {
-        isTeleporting = true;
 
         // =========================
         // DEPARTURE
         // =========================
 
-        speedLines.Play();
+        if (speedLines != null) speedLines.Play();
         PlayFlickerSound();
 
         for (int frame = 0; frame < flickerFrames; frame++)
@@ -73,8 +113,8 @@ public class Flicker : MonoBehaviour
         // ARRIVAL
         // =========================
 
-        speedLines.Play();
-        
+        if (speedLines != null) speedLines.Play();
+
 
         for (int frame = 0; frame < flickerFrames; frame++)
         {
@@ -82,11 +122,13 @@ public class Flicker : MonoBehaviour
             yield return null;
         }
 
-        isTeleporting = false;
     }
 
     void SetModelVisible(bool visible)
     {
+        modelHidden = !visible;
+        if (visualModel == null) return;
+
         Renderer[] renderers =
             visualModel.GetComponentsInChildren<Renderer>();
 
@@ -98,6 +140,8 @@ public class Flicker : MonoBehaviour
 
     void PlayFlickerSound()
     {
+        if (audioSource == null || flickerSound == null) return;
+
         audioSource.Stop();
 
         audioSource.clip = flickerSound;
@@ -111,6 +155,8 @@ public class Flicker : MonoBehaviour
 
     void CreateAfterimages()
     {
+        if (visualModel == null) return;
+
         SkinnedMeshRenderer[] renderers =
             visualModel.GetComponentsInChildren<SkinnedMeshRenderer>();
 
