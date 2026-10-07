@@ -28,11 +28,14 @@ public class EnemyController : MonoBehaviour
     private PlayerHealth playerHealth;
     private Rigidbody rb;
     private Collider enemyCollider;
+    private EnemyHitReaction hitReaction;
+    private Coroutine attackRoutine;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody>();
         enemyCollider = GetComponent<Collider>();
+        hitReaction = GetComponent<EnemyHitReaction>();
 
         // Enemy ei kaadu
         rb.constraints =
@@ -70,6 +73,8 @@ public class EnemyController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        if (hitReaction != null && hitReaction.IsReacting) return;
+
         if (player == null)
             return;
 
@@ -89,7 +94,7 @@ public class EnemyController : MonoBehaviour
         {
             if (!isAttacking && canAttack)
             {
-                StartCoroutine(Attack());
+                attackRoutine = StartCoroutine(Attack());
             }
 
             return;
@@ -195,6 +200,22 @@ public class EnemyController : MonoBehaviour
         );
     }
 
+    public void InterruptAttack()
+    {
+        if (attackRoutine != null)
+        {
+            StopCoroutine(attackRoutine);
+            attackRoutine = null;
+        }
+        isAttacking = false;
+        canAttack = true;
+    }
+
+    private void OnDisable()
+    {
+        InterruptAttack();
+    }
+
     private IEnumerator Attack()
     {
         isAttacking = true;
@@ -233,5 +254,6 @@ public class EnemyController : MonoBehaviour
         );
 
         canAttack = true;
+        attackRoutine = null;
     }
 }

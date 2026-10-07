@@ -22,6 +22,9 @@ public class PlayerMovement : MonoBehaviour
 
     // Effects listen to accepted dashes, never raw button presses.
     public event System.Action DashStarted;
+    public bool ExclusiveMovementActive { get; private set; }
+    public bool IsStingerRecoveryMovement { get; private set; }
+    float stingerRecoveryEndsAt;
 
     [Header("Attack Movement")]
     [Tooltip("Fraction of normal walking speed available during attacks.")]
@@ -133,6 +136,20 @@ public class PlayerMovement : MonoBehaviour
 
         HandleGroundingAndGravity();
 
+        // Stinger supplies displacement after this gravity update.
+        if (ExclusiveMovementActive) return;
+
+        if (IsStingerRecoveryMovement)
+        {
+            if (Time.time < stingerRecoveryEndsAt)
+            {
+                ReadInput();
+                HandleAttackMovement();
+                return;
+            }
+            UnlockMovement();
+        }
+
 
         // Preserve the hard lock API for non-attack callers.
         if (MovementLocked && !attackMovementActive)
@@ -173,6 +190,8 @@ public class PlayerMovement : MonoBehaviour
 
     public void LockMovement()
     {
+        IsStingerRecoveryMovement = false;
+        ExclusiveMovementActive = false;
         ClearAttackMovement();
         MovementLocked = true;
 
@@ -188,6 +207,8 @@ public class PlayerMovement : MonoBehaviour
 
     public void UnlockMovement()
     {
+        IsStingerRecoveryMovement = false;
+        ExclusiveMovementActive = false;
         ClearAttackMovement();
         MovementLocked = false;
     }
@@ -199,6 +220,7 @@ public class PlayerMovement : MonoBehaviour
         float pushDuration,
         float animationSpeed)
     {
+        if (ExclusiveMovementActive) return;
         // A new swing replaces the previous push without cancelling a dash.
         ClearAttackMovement();
         MovementLocked = true;
@@ -214,6 +236,42 @@ public class PlayerMovement : MonoBehaviour
     public void SetAttackMovementSpeed(float animationSpeed)
     {
         attackAnimationSpeed = Mathf.Max(0.05f, animationSpeed);
+    }
+
+
+    public Vector3 ReadWorldMovementInput()
+    {
+        ReadInput();
+        if (rawInput.magnitude < 0.1f) return Vector3.zero;
+        float yaw = cameraTransform != null
+            ? cameraTransform.eulerAngles.y : transform.eulerAngles.y;
+        Vector3 input = new Vector3(rawInput.x, 0f, rawInput.y);
+        return Quaternion.Euler(0f, yaw, 0f) * Vector3.ClampMagnitude(input, 1f);
+    }
+
+
+    public void BeginExclusiveMovement()
+    {
+        LockMovement();
+        ExclusiveMovementActive = true;
+    }
+
+
+    public void BeginStingerRecovery(float endsAt)
+    {
+        ExclusiveMovementActive = false;
+        BeginAttackMovement(0f, 0f, 0.01f, 1f);
+        IsStingerRecoveryMovement = true;
+        stingerRecoveryEndsAt = endsAt;
+    }
+
+
+    public CollisionFlags MoveExclusive(Vector3 horizontalDisplacement)
+    {
+        if (!ExclusiveMovementActive || controller == null || !controller.enabled)
+            return CollisionFlags.None;
+        horizontalDisplacement.y = 0f;
+        return controller.Move(horizontalDisplacement + verticalVelocity * Time.deltaTime);
     }
 
 
@@ -320,6 +378,8 @@ public class PlayerMovement : MonoBehaviour
     // Legacy immediate push API; PlayerCombat no longer uses this method.
     public void AttackPush(float speed)
     {
+        if (ExclusiveMovementActive) return;
+
         if (controller == null)
         {
             return;
@@ -444,6 +504,9 @@ public class PlayerMovement : MonoBehaviour
 
     public bool TryStartDash()
     {
+        if (ExclusiveMovementActive ||
+            (IsStingerRecoveryMovement && Time.time < stingerRecoveryEndsAt)) return false;
+
         if (!isActiveAndEnabled || controller == null || !controller.enabled ||
             isDashing || Time.time < nextDashTime ||
             (MovementLocked && !attackMovementActive) || dashDuration <= 0f)

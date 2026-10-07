@@ -32,6 +32,15 @@ public class PlayerCombat : MonoBehaviour
         [Min(0.01f)]
         public float forwardPushDuration = 0.35f;
 
+        [Header("Damage")]
+        [Min(0)] public int damage = 3;
+        public bool isHeavy;
+        [Range(0f, 1f)] public float hitStartNormalized = 0.15f;
+        [Range(0f, 1f)] public float hitEndNormalized = 0.65f;
+        [Min(0f)] public float hitStun = 0.3f;
+        [Tooltip("1 matches the full forward-push distance of this swing.")]
+        [Min(0f)] public float knockbackMultiplier = 1f;
+
 
         [Header("Sound")]
         public AudioClip swingSound;
@@ -48,6 +57,7 @@ public class PlayerCombat : MonoBehaviour
         public Attack(string name)
         {
             stateName = name;
+            isHeavy = name == "Attack4";
         }
     }
 
@@ -56,6 +66,8 @@ public class PlayerCombat : MonoBehaviour
     public Animator animator;
     public PlayerMovement playerMovement;
     public AudioSource swordAudio;
+    public PlayerStinger stinger;
+    public PlayerUdderGun udderGun;
 
 
     [Header("Animator")]
@@ -87,7 +99,8 @@ public class PlayerCombat : MonoBehaviour
     {
         get
         {
-            return currentAttack >= 0;
+            return currentAttack >= 0 || (stinger != null && stinger.IsActive)
+                || (udderGun != null && udderGun.IsBusy);
         }
     }
 
@@ -109,6 +122,7 @@ public class PlayerCombat : MonoBehaviour
     int[] attackHashes;
 
     int currentAttack = -1;
+    int swingId;
     int attackStartedFrame;
 
     float elapsed;
@@ -119,15 +133,38 @@ public class PlayerCombat : MonoBehaviour
     {
         if (playerMovement == null)
         {
-            playerMovement = GetComponent<PlayerMovement>();
+            // Combat can live on the animated child while movement lives
+            // on the parent containing the CharacterController.
+            playerMovement = GetComponentInParent<PlayerMovement>();
+        }
+
+        if (playerMovement == null)
+        {
+            Fail(
+                "Could not find PlayerMovement on this object or its parents. " +
+                "Assign the moving player's PlayerMovement component in References."
+            );
+            return;
         }
 
         SetupAnimator();
+
+        if (stinger == null)
+            stinger = playerMovement.GetComponentInChildren<PlayerStinger>();
+        if (udderGun == null)
+            udderGun = playerMovement.GetComponentInChildren<PlayerUdderGun>();
     }
 
 
     void Update()
     {
+        if (udderGun != null && udderGun.IsBusy) return;
+        if (stinger != null && stinger.IsActive)
+        {
+            if (stinger.CanInterrupt) HandleAttackInput();
+            return;
+        }
+
         if (animator == null)
         {
             return;
@@ -183,6 +220,20 @@ public class PlayerCombat : MonoBehaviour
 
     void RequestAttack()
     {
+        if (udderGun != null && udderGun.IsBusy) return;
+        bool interruptedStinger = false;
+        if (stinger != null && stinger.IsActive)
+        {
+            if (!stinger.CanInterrupt) return;
+            stinger.Cancel();
+            interruptedStinger = true;
+        }
+        // Stinger can interrupt a slash during its normal input cooldown.
+        // Interrupting its recovery starts a slash instead of having the same
+        // press consumed by Stinger's post-finish cooldown.
+        if (!interruptedStinger && stinger != null && stinger.TryHandleAttackInput(this)) return;
+        if (playerMovement.MovementLocked && !playerMovement.IsAttackMovementActive) return;
+
         // Prevent attacks from being spammed too quickly.
         if (Time.time < nextPressTime)
         {
@@ -221,6 +272,7 @@ public class PlayerCombat : MonoBehaviour
 
     void BeginAttack(int attackIndex)
     {
+        swingId++;
         currentAttack = attackIndex;
 
         elapsed = 0f;
@@ -335,6 +387,41 @@ public class PlayerCombat : MonoBehaviour
         {
             FinishCombo();
         }
+    }
+
+
+    // SwordHitbox samples the animated state after the Animator has updated.
+    public bool TryGetSwordAttack(out Attack attack, out int id, out float normalizedTime)
+    {
+        attack = null;
+        id = swingId;
+        normalizedTime = 0f;
+        if (!isActiveAndEnabled || currentAttack < 0 || animator == null ||
+            (udderGun != null && udderGun.IsBusy) ||
+            !animator.isActiveAndEnabled || (stinger != null && stinger.IsActive)) return false;
+
+        AnimatorStateInfo state = animator.IsInTransition(0)
+            ? animator.GetNextAnimatorStateInfo(0)
+            : animator.GetCurrentAnimatorStateInfo(0);
+        if (state.fullPathHash != attackHashes[currentAttack]) return false;
+        attack = attacks[currentAttack];
+        normalizedTime = state.normalizedTime;
+        return true;
+    }
+
+
+    public void InterruptComboForStinger()
+    {
+        InterruptComboForSpecialMove();
+    }
+
+    public void InterruptComboForSpecialMove()
+    {
+        StopAllCoroutines();
+        currentAttack = -1;
+        elapsed = 0f;
+        nextPressTime = 0f;
+        playerMovement.UnlockMovement();
     }
 
 
@@ -587,6 +674,9 @@ public class PlayerCombat : MonoBehaviour
 
     void OnDisable()
     {
+        if (udderGun != null) udderGun.Cancel();
+        if (stinger != null) stinger.Cancel();
+
         StopAllCoroutines();
 
 
