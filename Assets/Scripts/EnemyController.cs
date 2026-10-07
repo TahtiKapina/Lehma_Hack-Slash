@@ -10,7 +10,6 @@ public class EnemyController : MonoBehaviour
 
     [Header("Movement")]
     public float moveSpeed = 3f;
-    public float detectionRange = 10f;
     public float attackRange = 2f;
 
     [Header("Obstacle Avoidance")]
@@ -73,7 +72,8 @@ public class EnemyController : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (hitReaction != null && hitReaction.IsReacting) return;
+        if (hitReaction != null && hitReaction.IsReacting)
+            return;
 
         if (player == null)
             return;
@@ -84,10 +84,6 @@ public class EnemyController : MonoBehaviour
         direction.y = 0f;
 
         float distance = direction.magnitude;
-
-        // Pelaaja liian kaukana
-        if (distance > detectionRange)
-            return;
 
         // Hyökkäysalueella
         if (distance <= attackRange)
@@ -100,6 +96,7 @@ public class EnemyController : MonoBehaviour
             return;
         }
 
+        // Enemy seuraa pelaajaa aina
         if (!isAttacking)
         {
             MoveEnemy(direction.normalized);
@@ -142,7 +139,6 @@ public class EnemyController : MonoBehaviour
             }
             else
             {
-                // Ei voi liikkua eteenpäin
                 moveDirection = Vector3.zero;
             }
         }
@@ -153,7 +149,6 @@ public class EnemyController : MonoBehaviour
         moveDirection.y = 0f;
         moveDirection.Normalize();
 
-        // Liikkuu vain jos koko Colliderille on tilaa
         Vector3 movement =
             moveDirection *
             moveSpeed *
@@ -190,7 +185,6 @@ public class EnemyController : MonoBehaviour
         float distance =
             obstacleCheckDistance + radius;
 
-        // Tarkistaa koko Enemyn alueen
         return Physics.SphereCast(
             center,
             radius * 0.9f,
@@ -207,6 +201,7 @@ public class EnemyController : MonoBehaviour
             StopCoroutine(attackRoutine);
             attackRoutine = null;
         }
+
         isAttacking = false;
         canAttack = true;
     }
@@ -248,7 +243,7 @@ public class EnemyController : MonoBehaviour
 
         isAttacking = false;
 
-        // 3 sekuntia seuraavaan hyökkäykseen
+        // Odottaa ennen seuraavaa hyökkäystä
         yield return new WaitForSeconds(
             attackCooldown
         );
