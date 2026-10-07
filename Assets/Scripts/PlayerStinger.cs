@@ -11,6 +11,21 @@ public class PlayerStinger : MonoBehaviour
     public PlayerCombat combat;
     public Animator animator;
 
+    [Header("Stinger Audio")]
+    public AudioClip dashClip;
+    public AudioClip impactClip;
+    [Range(0f, 1f)] public float dashVolume = 1f;
+    [Range(0f, 1f)] public float impactVolume = 1f;
+    [Tooltip("Seconds for the dash sound to fade after a hit or travel ends.")]
+    [Min(0f)] public float dashFadeDuration = 0.08f;
+
+    // Dedicated sources keep the dash fade independent of impact and other SFX.
+    AudioSource dashAudio;
+    AudioSource impactAudio;
+    bool fadingDashAudio;
+    float dashFadeElapsed;
+    float dashFadeStartVolume;
+
     [Header("Input: lock-on + toward enemy + attack")]
     [Range(0.1f, 1f)] public float minimumStickAmount = 0.5f;
     [Range(0f, 90f)] public float inputConeAngle = 45f;
@@ -161,11 +176,13 @@ public class PlayerStinger : MonoBehaviour
 
         // Dedicated state: no AttackSpeed multiplier on this Animator state.
         animator.Play(stateHash, 0, 0f);
+        PlayDashAudio();
         return true;
     }
 
     void Update()
     {
+        UpdateDashAudioFade();
         if (!IsActive) return;
         if (playerMovement == null || !playerMovement.isActiveAndEnabled ||
             (!IsRecovering && !playerMovement.ExclusiveMovementActive) || controller == null || !controller.enabled ||
@@ -286,6 +303,12 @@ public class PlayerStinger : MonoBehaviour
 
     void BeginHitRecovery()
     {
+        FadeDashAudio();
+        if (impactClip != null)
+        {
+            EnsureAudioSources();
+            impactAudio.PlayOneShot(impactClip, impactVolume);
+        }
         IsRecovering = true;
         holdingPose = false;
         recoveryEndsAt = Time.time + Mathf.Max(0f, hitSlowDuration);
@@ -333,6 +356,7 @@ public class PlayerStinger : MonoBehaviour
     void Finish()
     {
         if (!IsActive) return;
+        FadeDashAudio();
         IsActive = false;
         IsRecovering = false;
         holdingPose = false;
@@ -356,6 +380,82 @@ public class PlayerStinger : MonoBehaviour
             subscribedMovement = null;
         }
         Cancel();
+        StopDashAudio();
+        if (impactAudio != null) impactAudio.Stop();
+    }
+
+    void EnsureAudioSources()
+    {
+        if (dashAudio == null)
+        {
+            dashAudio = gameObject.AddComponent<AudioSource>();
+            dashAudio.playOnAwake = false;
+            dashAudio.loop = true;
+            dashAudio.spatialBlend = 0f;
+        }
+        if (impactAudio == null)
+        {
+            impactAudio = gameObject.AddComponent<AudioSource>();
+            impactAudio.playOnAwake = false;
+            impactAudio.loop = false;
+            impactAudio.spatialBlend = 0f;
+        }
+    }
+
+    void PlayDashAudio()
+    {
+        StopDashAudio();
+        if (dashClip == null) return;
+        EnsureAudioSources();
+        dashAudio.clip = dashClip;
+        dashAudio.volume = dashVolume;
+        dashAudio.Play();
+    }
+
+    void FadeDashAudio()
+    {
+        // Finishing recovery must not restart a fade already in progress.
+        if (dashAudio == null || !dashAudio.isPlaying || fadingDashAudio) return;
+        if (dashFadeDuration <= 0f)
+        {
+            StopDashAudio();
+            return;
+        }
+        dashFadeStartVolume = dashAudio.volume;
+        dashFadeElapsed = 0f;
+        fadingDashAudio = true;
+    }
+
+    void UpdateDashAudioFade()
+    {
+        // Runs even after IsActive becomes false.
+        if (!fadingDashAudio) return;
+        if (dashAudio == null)
+        {
+            fadingDashAudio = false;
+            return;
+        }
+        dashFadeElapsed += Time.unscaledDeltaTime;
+        float t = dashFadeDuration <= 0f ? 1f
+            : Mathf.Clamp01(dashFadeElapsed / dashFadeDuration);
+        dashAudio.volume = Mathf.Lerp(dashFadeStartVolume, 0f, t);
+        if (t >= 1f) StopDashAudio();
+    }
+
+    void StopDashAudio()
+    {
+        fadingDashAudio = false;
+        if (dashAudio != null)
+        {
+            dashAudio.Stop();
+            dashAudio.volume = dashVolume;
+        }
+    }
+
+    void OnDestroy()
+    {
+        if (dashAudio != null) Destroy(dashAudio);
+        if (impactAudio != null) Destroy(impactAudio);
     }
 
     void OnDrawGizmosSelected()

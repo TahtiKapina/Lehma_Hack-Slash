@@ -450,6 +450,11 @@ MonoBehaviour:
   playerMovement: {fileID: 8578126490416249902}
   combat: {fileID: 3132696924519096511}
   animator: {fileID: 817584889840611417}
+  dashClip: {fileID: 8300000, guid: d8b5e231645c8114b9b41e91743f76c3, type: 3}
+  impactClip: {fileID: 8300000, guid: 56ef8c34fb3139848a0f7db82fc7c072, type: 3}
+  dashVolume: 1
+  impactVolume: 1
+  dashFadeDuration: 1
   minimumStickAmount: 0.87
   inputConeAngle: 45
   facingConeAngle: 70
